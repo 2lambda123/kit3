@@ -1,11 +1,10 @@
-import fs from 'node:fs';
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
-import { test } from 'uvu';
-import * as assert from 'uvu/assert';
-import { create } from '../index.js';
 import { fileURLToPath } from 'node:url';
 import glob from 'tiny-glob';
+import { assert, beforeAll, describe, test } from 'vitest';
+import { create } from '../index.js';
 
 /** Resolve the given path relative to the current file */
 const resolve_path = (path) => fileURLToPath(new URL(path, import.meta.url));
@@ -47,11 +46,17 @@ const workspace = {
 	pnpm: { overrides },
 	devDependencies: overrides
 };
+
 fs.writeFileSync(
 	path.join(test_workspace_dir, 'package.json'),
 	JSON.stringify(workspace, null, '\t')
 );
+
 fs.writeFileSync(path.join(test_workspace_dir, 'pnpm-workspace.yaml'), 'packages:\n  - ./*\n');
+
+beforeAll(() => {
+	execSync(`pnpm install --no-frozen-lockfile`, { cwd: test_workspace_dir, stdio: 'inherit' });
+});
 
 for (const template of fs.readdirSync('templates')) {
 	if (template[0] === '.') continue;
@@ -89,28 +94,30 @@ for (const template of fs.readdirSync('templates')) {
 
 		// run provided scripts that are non-blocking. All of them should exit with 0
 		// package script requires lib dir
+		// TODO: lint should run before format
 		const scripts_to_test = ['sync', 'format', 'lint', 'check', 'build'];
 		if (fs.existsSync(path.join(cwd, 'src', 'lib'))) {
 			scripts_to_test.push('package');
 		}
 
-		for (const script of scripts_to_test.filter((s) => !!pkg.scripts[s])) {
-			test(`${template}-${types}: ${script}`, () => {
-				try {
-					execSync(`pnpm ${script}`, { cwd, stdio: 'pipe' });
-				} catch (e) {
-					assert.unreachable(
-						`script: ${script} failed\n` +
-							`---\nstdout:\n${e.stdout}\n` +
-							`---\nstderr:\n${e.stderr}`
-					);
-				}
-			});
-		}
+		describe(`${template}-${types}`, () => {
+			for (const script of scripts_to_test.filter((s) => !!pkg.scripts[s])) {
+				test(`${script}`, () => {
+					try {
+						// Somehow vitest seems really bad at reporting progress here,
+						// so inherit stdio to get some feedback when running tests locally
+						execSync(`pnpm ${script}`, { cwd, stdio: process.env.CI ? 'pipe' : 'inherit' });
+					} catch (e) {
+						assert.fail(
+							`script ${script} failed with exit code ${e.status}` +
+								`\n--- stdout:\n` +
+								e.stdout?.toString() +
+								`\n--- stderr:\n` +
+								e.stderr?.toString()
+						);
+					}
+				});
+			}
+		});
 	}
 }
-
-console.log('installing dependencies...');
-execSync('pnpm install --no-frozen-lockfile', { cwd: test_workspace_dir, stdio: 'ignore' });
-console.log('done installing dependencies');
-test.run();
