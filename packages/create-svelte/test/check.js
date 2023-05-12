@@ -1,9 +1,10 @@
-import { execSync } from 'node:child_process';
+import { exec, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import glob from 'tiny-glob';
-import { assert, beforeAll, describe, test } from 'vitest';
+import { beforeAll, describe, test } from 'vitest';
 import { create } from '../index.js';
 
 /** Resolve the given path relative to the current file */
@@ -54,9 +55,15 @@ fs.writeFileSync(
 
 fs.writeFileSync(path.join(test_workspace_dir, 'pnpm-workspace.yaml'), 'packages:\n  - ./*\n');
 
-beforeAll(() => {
-	execSync(`pnpm install --no-frozen-lockfile`, { cwd: test_workspace_dir, stdio: 'inherit' });
-});
+const exec_async = promisify(exec);
+
+beforeAll(
+	() =>
+		exec_async(`pnpm install --no-frozen-lockfile`, {
+			cwd: test_workspace_dir
+		}),
+	Infinity
+);
 
 for (const template of fs.readdirSync('templates')) {
 	if (template[0] === '.') continue;
@@ -100,24 +107,16 @@ for (const template of fs.readdirSync('templates')) {
 			scripts_to_test.push('package');
 		}
 
-		describe(`${template}-${types}`, () => {
-			for (const script of scripts_to_test.filter((s) => !!pkg.scripts[s])) {
-				test(`${script}`, () => {
-					try {
-						// Somehow vitest seems really bad at reporting progress here,
-						// so inherit stdio to get some feedback when running tests locally
-						execSync(`pnpm ${script}`, { cwd, stdio: process.env.CI ? 'pipe' : 'inherit' });
-					} catch (e) {
-						assert.fail(
-							`script ${script} failed with exit code ${e.status}` +
-								`\n--- stdout:\n` +
-								e.stdout?.toString() +
-								`\n--- stderr:\n` +
-								e.stderr?.toString()
-						);
-					}
-				});
+		describe(
+			`${template}-${types}`,
+			() => {
+				for (const script of scripts_to_test.filter((s) => !!pkg.scripts[s])) {
+					test(`${script}`, () => exec_async(`pnpm ${script}`, { cwd }));
+				}
+			},
+			{
+				timeout: Infinity
 			}
-		});
+		);
 	}
 }
