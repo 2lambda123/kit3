@@ -1,5 +1,13 @@
 # @sveltejs/kit
 
+## 1.16.4
+
+### Patch Changes
+
+- fix: stop setting Kit cookie defaults on cookies parsed from headers ([#9908](https://github.com/sveltejs/kit/pull/9908))
+
+- fix: only skip hydration with vite overlay if current page is an error ([#9892](https://github.com/sveltejs/kit/pull/9892))
+
 ## 1.16.3
 
 ### Patch Changes
